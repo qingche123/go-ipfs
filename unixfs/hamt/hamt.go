@@ -52,7 +52,7 @@ type Shard struct {
 	tableSize    int
 	tableSizeLg2 int
 
-	prefix   *cid.Prefix
+	prefix   cid.Format
 	hashFunc uint64
 
 	prefixPadStr string
@@ -124,18 +124,18 @@ func NewHamtFromDag(dserv ipld.DAGService, nd ipld.Node) (*Shard, error) {
 	ds.children = make([]child, len(pbnd.Links()))
 	ds.bitfield.SetBytes(pbd.GetData())
 	ds.hashFunc = pbd.GetHashType()
-	ds.prefix = &ds.nd.Prefix
+	ds.prefix = ds.nd.Prefix()
 
 	return ds, nil
 }
 
 // SetPrefix sets the CID Prefix
-func (ds *Shard) SetPrefix(prefix *cid.Prefix) {
+func (ds *Shard) SetPrefix(prefix cid.Format) {
 	ds.prefix = prefix
 }
 
 // Prefix gets the CID Prefix, may be nil if unset
-func (ds *Shard) Prefix() *cid.Prefix {
+func (ds *Shard) Prefix() cid.Format {
 	return ds.prefix
 }
 

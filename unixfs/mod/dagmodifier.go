@@ -256,7 +256,7 @@ func (dm *DagModifier) modifyDag(n ipld.Node, offset uint64) (*cid.Cid, error) {
 
 			nd := new(mdag.ProtoNode)
 			nd.SetData(b)
-			nd.SetPrefix(&nd0.Prefix)
+			nd.SetPrefix(nd0.Prefix())
 			err = dm.dagserv.Add(dm.ctx, nd)
 			if err != nil {
 				return nil, err
@@ -282,7 +282,7 @@ func (dm *DagModifier) modifyDag(n ipld.Node, offset uint64) (*cid.Cid, error) {
 				copy(bytes[offsetPlusN:], origData[offsetPlusN:])
 			}
 
-			nd, err := mdag.NewRawNodeWPrefix(bytes, nd0.Cid().Prefix())
+			nd, err := mdag.NewRawNodeWOpts(bytes, nd0.Cid().Prefix())
 			if err != nil {
 				return nil, err
 			}
@@ -517,7 +517,7 @@ func dagTruncate(ctx context.Context, n ipld.Node, size uint64, ds ipld.DAGServi
 			nd.SetData(ft.WrapData(pbn.Data[:size]))
 			return nd, nil
 		case *mdag.RawNode:
-			return mdag.NewRawNodeWPrefix(nd.RawData()[:size], nd.Cid().Prefix())
+			return mdag.NewRawNodeWOpts(nd.RawData()[:size], nd.Cid().Prefix())
 		}
 	}
 

@@ -61,7 +61,7 @@ func NewUnixfsNodeFromDag(nd *dag.ProtoNode) (*UnixfsNode, error) {
 }
 
 // SetPrefix sets the CID Prefix
-func (n *UnixfsNode) SetPrefix(prefix *cid.Prefix) {
+func (n *UnixfsNode) SetPrefix(prefix cid.Format) {
 	n.node.SetPrefix(prefix)
 }
 

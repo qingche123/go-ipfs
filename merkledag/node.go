@@ -28,7 +28,7 @@ type ProtoNode struct {
 	cached *cid.Cid
 
 	// Prefix specifies cid version and hashing function
-	Prefix cid.Prefix
+	prefix cid.Format
 }
 
 var v0CidPrefix = cid.Prefix{
@@ -63,14 +63,21 @@ func PrefixForCidVersion(version int) (cid.Prefix, error) {
 	}
 }
 
+// Prefix returns the CID Prefix for this ProtoNode, it is never nil
+func (n *ProtoNode) Prefix() cid.Format {
+	if n.prefix == nil {
+		n.prefix = v0CidPrefix
+	}
+	return n.prefix
+}
+
 // SetPrefix sets the CID prefix if it is non nil, if prefix is nil then
 // it resets it the default value
-func (n *ProtoNode) SetPrefix(prefix *cid.Prefix) {
+func (n *ProtoNode) SetPrefix(prefix cid.Format) {
 	if prefix == nil {
-		n.Prefix = v0CidPrefix
+		n.prefix = v0CidPrefix
 	} else {
-		n.Prefix = *prefix
-		n.Prefix.Codec = cid.DagProtobuf
+		n.prefix = prefix.WithCodec(cid.DagProtobuf)
 		n.encoded = nil
 		n.cached = nil
 	}
@@ -191,7 +198,7 @@ func (n *ProtoNode) Copy() ipld.Node {
 		copy(nnode.links, n.links)
 	}
 
-	nnode.Prefix = n.Prefix
+	nnode.prefix = n.prefix
 
 	return nnode
 }
@@ -301,11 +308,7 @@ func (n *ProtoNode) Cid() *cid.Cid {
 		return n.cached
 	}
 
-	if n.Prefix.Codec == 0 {
-		n.SetPrefix(nil)
-	}
-
-	c, err := n.Prefix.Sum(n.RawData())
+	c, err := n.Prefix().Sum(n.RawData())
 	if err != nil {
 		// programmer error
 		err = fmt.Errorf("invalid CID of length %d: %x: %v", len(n.RawData()), n.RawData(), err)

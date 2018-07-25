@@ -101,7 +101,7 @@ func PutNode(r *Root, path string, nd ipld.Node) error {
 type MkdirOpts struct {
 	Mkparents bool
 	Flush     bool
-	Prefix    *cid.Prefix
+	Prefix    cid.Format
 }
 
 // Mkdir creates a directory at 'path' under the directory 'd', creating

@@ -26,7 +26,7 @@ type DagBuilderHelper struct {
 	nextData  []byte // the next item to return.
 	maxlinks  int
 	batch     *ipld.Batch
-	prefix    *cid.Prefix
+	prefix    cid.Format
 
 	// Filestore support variables.
 	// ----------------------------
@@ -54,7 +54,7 @@ type DagBuilderParams struct {
 	RawLeaves bool
 
 	// CID Prefix to use if set
-	Prefix *cid.Prefix
+	Prefix cid.Format
 
 	// DAGService to write blocks to (required)
 	Dagserv ipld.DAGService
@@ -146,7 +146,7 @@ func (db *DagBuilderHelper) NewUnixfsNode() *UnixfsNode {
 }
 
 // GetPrefix returns the internal `cid.Prefix` set in the builder.
-func (db *DagBuilderHelper) GetPrefix() *cid.Prefix {
+func (db *DagBuilderHelper) GetPrefix() cid.Format {
 	return db.prefix
 }
 
@@ -166,7 +166,7 @@ func (db *DagBuilderHelper) NewLeaf(data []byte) (*UnixfsNode, error) {
 				raw:     true,
 			}, nil
 		}
-		rawnode, err := dag.NewRawNodeWPrefix(data, *db.prefix)
+		rawnode, err := dag.NewRawNodeWOpts(data, db.prefix)
 		if err != nil {
 			return nil, err
 		}
@@ -197,7 +197,7 @@ func (db *DagBuilderHelper) NewLeafNode(data []byte) (ipld.Node, error) {
 		if db.prefix == nil {
 			return dag.NewRawNode(data), nil
 		}
-		rawnode, err := dag.NewRawNodeWPrefix(data, *db.prefix)
+		rawnode, err := dag.NewRawNodeWOpts(data, db.prefix)
 		if err != nil {
 			return nil, err
 		}

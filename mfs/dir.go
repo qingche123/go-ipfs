@@ -64,12 +64,12 @@ func NewDirectory(ctx context.Context, name string, node ipld.Node, parent child
 }
 
 // GetPrefix gets the CID prefix of the root node
-func (d *Directory) GetPrefix() *cid.Prefix {
+func (d *Directory) GetPrefix() cid.Format {
 	return d.unixfsDir.GetPrefix()
 }
 
 // SetPrefix sets the CID prefix
-func (d *Directory) SetPrefix(prefix *cid.Prefix) {
+func (d *Directory) SetPrefix(prefix cid.Format) {
 	d.unixfsDir.SetPrefix(prefix)
 }
 
