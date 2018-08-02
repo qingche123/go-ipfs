@@ -207,7 +207,13 @@ format.
 			return
 		}
 
-		obj, rem, err := n.Resolver.ResolveToLastNode(req.Context(), p)
+		c, rem, err := n.Resolver.ResolveToLastNode(req.Context(), p)
+		if err != nil {
+			res.SetError(err, cmdkit.ErrNormal)
+			return
+		}
+
+		obj, err := n.DAG.Get(req.Context(), c)
 		if err != nil {
 			res.SetError(err, cmdkit.ErrNormal)
 			return
