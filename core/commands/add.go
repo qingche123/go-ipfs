@@ -5,23 +5,26 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 	"strings"
+	"context"
 
-	blockservice "github.com/ipfs/go-ipfs/blockservice"
-	core "github.com/ipfs/go-ipfs/core"
+	api "github.com/qingche123/go-ipfs-api"
+	"github.com/ipfs/go-ipfs/blockservice"
+	"github.com/ipfs/go-ipfs/core"
 	"github.com/ipfs/go-ipfs/core/coreunix"
 	dag "github.com/ipfs/go-ipfs/merkledag"
 	dagtest "github.com/ipfs/go-ipfs/merkledag/test"
-	mfs "github.com/ipfs/go-ipfs/mfs"
+	"github.com/ipfs/go-ipfs/mfs"
 	ft "github.com/ipfs/go-ipfs/unixfs"
 
-	cmds "gx/ipfs/QmTjNRVt2fvaRFu93keEC7z5M1GS1iH6qZ9227htQioTUY/go-ipfs-cmds"
-	offline "gx/ipfs/QmWM5HhdG5ZQNyHQ5XhMdGmV9CvLpFynQfGpTxN2MEM7Lc/go-ipfs-exchange-offline"
+	"gx/ipfs/QmTjNRVt2fvaRFu93keEC7z5M1GS1iH6qZ9227htQioTUY/go-ipfs-cmds"
+	"gx/ipfs/QmWM5HhdG5ZQNyHQ5XhMdGmV9CvLpFynQfGpTxN2MEM7Lc/go-ipfs-exchange-offline"
 	mh "gx/ipfs/QmZyZDi491cCNTLfAhwcaDii2Kg4pwKRkhqQzURGDvY6ua/go-multihash"
 	bstore "gx/ipfs/QmaG4DZ4JaqEfvPWt5nPPgoTzhc1tr1T3f4Nu9Jpdm8ymY/go-ipfs-blockstore"
-	cmdkit "gx/ipfs/QmceUdzxkimdYsgtX733uNgzf1DLHyBKN6ehGSp85ayppM/go-ipfs-cmdkit"
-	files "gx/ipfs/QmceUdzxkimdYsgtX733uNgzf1DLHyBKN6ehGSp85ayppM/go-ipfs-cmdkit/files"
-	pb "gx/ipfs/QmeWjRodbcZFKe5tMN7poEx3izym6osrLSnTLf9UjJZBbs/pb"
+	"gx/ipfs/QmceUdzxkimdYsgtX733uNgzf1DLHyBKN6ehGSp85ayppM/go-ipfs-cmdkit"
+	"gx/ipfs/QmceUdzxkimdYsgtX733uNgzf1DLHyBKN6ehGSp85ayppM/go-ipfs-cmdkit/files"
+	"gx/ipfs/QmeWjRodbcZFKe5tMN7poEx3izym6osrLSnTLf9UjJZBbs/pb"
 )
 
 // ErrDepthLimitExceeded indicates that the max depth has been exceeded.
@@ -43,7 +46,12 @@ const (
 	fstoreCacheOptionName = "fscache"
 	cidVersionOptionName  = "cid-version"
 	hashOptionName        = "hash"
+	copyNodesName         = "copy-nodes"
 )
+
+type object struct {
+	Hash string
+}
 
 const adderOutChanSize = 8
 
@@ -119,6 +127,7 @@ You can now check what blocks have been created by:
 		cmdkit.BoolOption(fstoreCacheOptionName, "Check the filestore for pre-existing blocks. (experimental)"),
 		cmdkit.IntOption(cidVersionOptionName, "CID version. Defaults to 0 unless an option that depends on CIDv1 is passed. (experimental)"),
 		cmdkit.StringOption(hashOptionName, "Hash function to use. Implies CIDv1 if not sha2-256. (experimental)").WithDefault("sha2-256"),
+		cmdkit.StringOption(copyNodesName, "Nodes to copy."),
 	},
 	PreRun: func(req *cmds.Request, env cmds.Environment) error {
 		quiet, _ := req.Options[quietOptionName].(bool)
@@ -172,6 +181,32 @@ You can now check what blocks have been created by:
 		fscache, _ := req.Options[fstoreCacheOptionName].(bool)
 		cidVer, cidVerSet := req.Options[cidVersionOptionName].(int)
 		hashFunStr, _ := req.Options[hashOptionName].(string)
+
+		fmt.Println("-------------------------------------------")
+		copyNodeCount := 0
+		//copyNodes := make([]string, copyNodeCount)
+		var copyNodes []string
+		copyNodeString, _ := req.Options[copyNodesName].(string)
+		copyNodeString = strings.TrimLeft(copyNodeString, " ")
+		copyNodeString = strings.TrimLeft(copyNodeString, "[")
+		copyNodeString = strings.TrimRight(copyNodeString, "]")
+		copyNodeString = strings.TrimRight(copyNodeString, " ")
+		fmt.Println("copyNodeString: ", copyNodeString)
+
+		if strings.Compare(copyNodeString, " ") == 0 {
+			copyNodeCount = 0
+		} else {
+			copyNodes = strings.Split(copyNodeString, " ")
+			copyNodeCount = len(copyNodes)
+			fmt.Println("copyNodeCount: ", copyNodeCount)
+			fmt.Println("copyNodes[0]: ", copyNodes[0])
+			//for i := 0; i < copyNodeCount; i++  {
+			//	copyNodes[i] = copyNodesSlice[i]
+			//	fmt.Println(copyNodes[i])
+			//}
+		}
+		fmt.Println("copyNodes[0]: ", copyNodes[0])
+		fmt.Println("-------------------------------------------")
 
 		// The arguments are subject to the following constraints.
 		//
@@ -295,10 +330,12 @@ You can now check what blocks have been created by:
 			fileAdder.SetMfsRoot(mr)
 		}
 
-		addAllAndPin := func(f files.File) error {
+		addAllAndPin := func(f files.File, copyNodes []string) error {
 			// Iterate over each top-level file and add individually. Otherwise the
 			// single files.File f is treated as a directory, affecting hidden file
 			// semantics.
+
+			fmt.Println("addAndPin1: ", copyNodes[0])
 			for {
 				file, err := f.NextFile()
 				if err == io.EOF {
@@ -318,6 +355,24 @@ You can now check what blocks have been created by:
 				return err
 			}
 
+			fmt.Println("addAndPin2: ", copyNodes[0])
+
+			var out object
+			sh := api.NewShell(copyNodes[0])
+			//fileReader := files.NewMultiFileReader(f, false)
+			err = sh.Request("add").
+				Option("progress", false).
+				Option("pin", true).
+				Option("raw-leaves", false).
+				Body(f).
+				Exec(context.Background(), &out)
+			fmt.Println()
+			if err != nil {
+				fmt.Println(err.Error())
+			} else {
+				fmt.Println(out.Hash)
+			}
+
 			if hash {
 				return nil
 			}
@@ -330,7 +385,7 @@ You can now check what blocks have been created by:
 			var err error
 			defer func() { errCh <- err }()
 			defer close(outChan)
-			err = addAllAndPin(req.Files)
+			err = addAllAndPin(req.Files, copyNodes)
 		}()
 
 		defer res.Close()
@@ -344,6 +399,39 @@ You can now check what blocks have been created by:
 		if err != nil {
 			res.SetError(err, cmdkit.ErrNormal)
 		}
+		time.Sleep(time.Second)
+		/*
+		//---------------------------------------------------
+		fileReader := files.NewMultiFileReader(req.Files, true)
+
+		var out object
+		if copyNodeCount != 0 {
+			for i := 0; i < copyNodeCount; i++  {
+				sh := api.NewShell(copyNodes[i])
+				err = sh.Request("add").
+					Option("progress", false).
+					Option("pin", true).
+					Option("raw-leaves", false).
+					Option("copy-nodes", copyNodes).
+					Body(fileReader).
+					Exec(context.Background(), &out)
+				fmt.Println()
+				if err != nil {
+					fmt.Println(err.Error())
+				} else {
+					fmt.Println(out.Hash)
+				}
+
+
+				//hash, err := sh.Add(req.Files)
+				//if err != nil {
+				//	fmt.Println(err)
+				//} else {
+				//	fmt.Println(copyNodes[i], ":", hash)
+				//}
+
+			}
+		}*/
 	},
 	PostRun: cmds.PostRunMap{
 		cmds.CLI: func(req *cmds.Request, re cmds.ResponseEmitter) cmds.ResponseEmitter {
