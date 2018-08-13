@@ -175,7 +175,6 @@ func (adder *Adder) PinRoot() error {
 	}
 
 	rnk := root.Cid()
-
 	err = adder.dagService.Add(adder.ctx, root)
 	if err != nil {
 		return err

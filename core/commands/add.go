@@ -1,18 +1,16 @@
 package commands
 
 import (
+	"io"
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"time"
 	"strings"
-	"context"
-
-	api "github.com/qingche123/go-ipfs-api"
 	"github.com/ipfs/go-ipfs/blockservice"
 	"github.com/ipfs/go-ipfs/core"
 	"github.com/ipfs/go-ipfs/core/coreunix"
+
+	api "github.com/qingche123/go-ipfs-api"
 	dag "github.com/ipfs/go-ipfs/merkledag"
 	dagtest "github.com/ipfs/go-ipfs/merkledag/test"
 	"github.com/ipfs/go-ipfs/mfs"
@@ -184,28 +182,23 @@ You can now check what blocks have been created by:
 
 		fmt.Println("-------------------------------------------")
 		copyNodeCount := 0
-		//copyNodes := make([]string, copyNodeCount)
 		var copyNodes []string
 		copyNodeString, _ := req.Options[copyNodesName].(string)
 		copyNodeString = strings.TrimLeft(copyNodeString, " ")
 		copyNodeString = strings.TrimLeft(copyNodeString, "[")
+		copyNodeString = strings.TrimRight(copyNodeString, " ")
 		copyNodeString = strings.TrimRight(copyNodeString, "]")
 		copyNodeString = strings.TrimRight(copyNodeString, " ")
 		fmt.Println("copyNodeString: ", copyNodeString)
 
-		if strings.Compare(copyNodeString, " ") == 0 {
+		if strings.Compare(copyNodeString, " ")  == 0 || len(copyNodeString) < 7 {
+			fmt.Println("copyNodeCount = 0")
 			copyNodeCount = 0
 		} else {
 			copyNodes = strings.Split(copyNodeString, " ")
 			copyNodeCount = len(copyNodes)
 			fmt.Println("copyNodeCount: ", copyNodeCount)
-			fmt.Println("copyNodes[0]: ", copyNodes[0])
-			//for i := 0; i < copyNodeCount; i++  {
-			//	copyNodes[i] = copyNodesSlice[i]
-			//	fmt.Println(copyNodes[i])
-			//}
 		}
-		fmt.Println("copyNodes[0]: ", copyNodes[0])
 		fmt.Println("-------------------------------------------")
 
 		// The arguments are subject to the following constraints.
@@ -330,12 +323,10 @@ You can now check what blocks have been created by:
 			fileAdder.SetMfsRoot(mr)
 		}
 
-		addAllAndPin := func(f files.File, copyNodes []string) error {
+		addAllAndPin := func(f files.File) error {
 			// Iterate over each top-level file and add individually. Otherwise the
 			// single files.File f is treated as a directory, affecting hidden file
 			// semantics.
-
-			fmt.Println("addAndPin1: ", copyNodes[0])
 			for {
 				file, err := f.NextFile()
 				if err == io.EOF {
@@ -355,28 +346,9 @@ You can now check what blocks have been created by:
 				return err
 			}
 
-			fmt.Println("addAndPin2: ", copyNodes[0])
-
-			var out object
-			sh := api.NewShell(copyNodes[0])
-			//fileReader := files.NewMultiFileReader(f, false)
-			err = sh.Request("add").
-				Option("progress", false).
-				Option("pin", true).
-				Option("raw-leaves", false).
-				Body(f).
-				Exec(context.Background(), &out)
-			fmt.Println()
-			if err != nil {
-				fmt.Println(err.Error())
-			} else {
-				fmt.Println(out.Hash)
-			}
-
 			if hash {
 				return nil
 			}
-
 			return fileAdder.PinRoot()
 		}
 
@@ -385,7 +357,7 @@ You can now check what blocks have been created by:
 			var err error
 			defer func() { errCh <- err }()
 			defer close(outChan)
-			err = addAllAndPin(req.Files, copyNodes)
+			err = addAllAndPin(req.Files)
 		}()
 
 		defer res.Close()
@@ -399,39 +371,36 @@ You can now check what blocks have been created by:
 		if err != nil {
 			res.SetError(err, cmdkit.ErrNormal)
 		}
-		time.Sleep(time.Second)
-		/*
-		//---------------------------------------------------
-		fileReader := files.NewMultiFileReader(req.Files, true)
 
-		var out object
-		if copyNodeCount != 0 {
-			for i := 0; i < copyNodeCount; i++  {
-				sh := api.NewShell(copyNodes[i])
-				err = sh.Request("add").
-					Option("progress", false).
-					Option("pin", true).
-					Option("raw-leaves", false).
-					Option("copy-nodes", copyNodes).
-					Body(fileReader).
-					Exec(context.Background(), &out)
-				fmt.Println()
-				if err != nil {
-					fmt.Println(err.Error())
-				} else {
-					fmt.Println(out.Hash)
-				}
+		rt, err := fileAdder.RootNode()
+		if err != nil {
+			log.Error(err)
+			return
+		}
+		filesHash := rt.Cid().String()
 
-
-				//hash, err := sh.Add(req.Files)
-				//if err != nil {
-				//	fmt.Println(err)
-				//} else {
-				//	fmt.Println(copyNodes[i], ":", hash)
-				//}
-
+		for i := 0; i < copyNodeCount; i++ {
+			readers, _, err := cat(req.Context, n, []string{filesHash}, 0, -1)
+			if err != nil {
+				res.SetError(err, cmdkit.ErrNormal)
+				return
 			}
-		}*/
+			reader := io.MultiReader(readers...)
+
+			sh := api.NewShell(copyNodes[i])
+			if !sh.IsUp() {
+				fmt.Println("Node is not up: ", copyNodes[0])
+				continue
+			}
+			hash, err := sh.Add(reader)
+			if err != nil {
+				fmt.Println("Copy error: ", copyNodes[i], " ",err.Error())
+			} else if 0 != strings.Compare(hash, filesHash) {
+				fmt.Println("Copy error: ", copyNodes[i], " Hash not match")
+			} else {
+				fmt.Println("Copy finished: ", copyNodes[i], ": ", hash)
+			}
+		}
 	},
 	PostRun: cmds.PostRunMap{
 		cmds.CLI: func(req *cmds.Request, re cmds.ResponseEmitter) cmds.ResponseEmitter {
