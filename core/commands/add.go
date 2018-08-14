@@ -44,7 +44,8 @@ const (
 	fstoreCacheOptionName = "fscache"
 	cidVersionOptionName  = "cid-version"
 	hashOptionName        = "hash"
-	copyNodesName         = "copy-nodes"
+	copyNumName           = "copy-num"
+	dstNodesName          = "dst-nodes"
 )
 
 type object struct {
@@ -125,7 +126,8 @@ You can now check what blocks have been created by:
 		cmdkit.BoolOption(fstoreCacheOptionName, "Check the filestore for pre-existing blocks. (experimental)"),
 		cmdkit.IntOption(cidVersionOptionName, "CID version. Defaults to 0 unless an option that depends on CIDv1 is passed. (experimental)"),
 		cmdkit.StringOption(hashOptionName, "Hash function to use. Implies CIDv1 if not sha2-256. (experimental)").WithDefault("sha2-256"),
-		cmdkit.StringOption(copyNodesName, "Nodes to copy."),
+		cmdkit.IntOption(copyNumName, "How many nodes to copy. copyNum must smaller than length of copyNodes").WithDefault(0),
+		cmdkit.StringOption(dstNodesName, "Nodes to copy."),
 	},
 	PreRun: func(req *cmds.Request, env cmds.Environment) error {
 		quiet, _ := req.Options[quietOptionName].(bool)
@@ -179,28 +181,8 @@ You can now check what blocks have been created by:
 		fscache, _ := req.Options[fstoreCacheOptionName].(bool)
 		cidVer, cidVerSet := req.Options[cidVersionOptionName].(int)
 		hashFunStr, _ := req.Options[hashOptionName].(string)
-
-		fmt.Println("-------------------------------------------")
-		copyNodeCount := 0
-		var copyNodes []string
-		copyNodeString, _ := req.Options[copyNodesName].(string)
-		copyNodeString = strings.TrimLeft(copyNodeString, " ")
-		copyNodeString = strings.TrimLeft(copyNodeString, "[")
-		copyNodeString = strings.TrimRight(copyNodeString, " ")
-		copyNodeString = strings.TrimRight(copyNodeString, "]")
-		copyNodeString = strings.TrimRight(copyNodeString, " ")
-		fmt.Println("copyNodeString: ", copyNodeString)
-
-		if strings.Compare(copyNodeString, " ")  == 0 || len(copyNodeString) < 7 {
-			fmt.Println("copyNodeCount = 0")
-			copyNodeCount = 0
-		} else {
-			copyNodes = strings.Split(copyNodeString, " ")
-			copyNodeCount = len(copyNodes)
-			fmt.Println("copyNodeCount: ", copyNodeCount)
-		}
-		fmt.Println("-------------------------------------------")
-
+		copyNum, _ := req.Options[copyNumName].(int)
+		dstNodeString, _ := req.Options[dstNodesName].(string)
 		// The arguments are subject to the following constraints.
 		//
 		// nocopy -> filestoreEnabled
@@ -359,7 +341,6 @@ You can now check what blocks have been created by:
 			defer close(outChan)
 			err = addAllAndPin(req.Files)
 		}()
-
 		defer res.Close()
 
 		err = res.Emit(outChan)
@@ -372,33 +353,56 @@ You can now check what blocks have been created by:
 			res.SetError(err, cmdkit.ErrNormal)
 		}
 
-		rt, err := fileAdder.RootNode()
-		if err != nil {
-			log.Error(err)
-			return
-		}
-		filesHash := rt.Cid().String()
+		if copyNum > 0 {
+			hasCopy := 0
+			dstNodeCount := 0
+			var dstNodes []string
 
-		for i := 0; i < copyNodeCount; i++ {
-			readers, _, err := cat(req.Context, n, []string{filesHash}, 0, -1)
+			dstNodeString = strings.TrimLeft(dstNodeString, " ")
+			dstNodeString = strings.TrimLeft(dstNodeString, "[")
+			dstNodeString = strings.TrimRight(dstNodeString, " ")
+			dstNodeString = strings.TrimRight(dstNodeString, "]")
+			dstNodeString = strings.TrimRight(dstNodeString, " ")
+
+			if strings.Compare(dstNodeString, " ")  == 0 || len(dstNodeString) < 7 {
+				dstNodeCount = 0
+			} else {
+				dstNodes = strings.Split(dstNodeString, " ")
+				dstNodeCount = len(dstNodes)
+			}
+
+			rt, err := fileAdder.RootNode()
 			if err != nil {
-				res.SetError(err, cmdkit.ErrNormal)
+				log.Error(err)
 				return
 			}
-			reader := io.MultiReader(readers...)
+			filesHash := rt.Cid().String()
 
-			sh := api.NewShell(copyNodes[i])
-			if !sh.IsUp() {
-				fmt.Println("Node is not up: ", copyNodes[0])
-				continue
-			}
-			hash, err := sh.Add(reader)
-			if err != nil {
-				fmt.Println("Copy error: ", copyNodes[i], " ",err.Error())
-			} else if 0 != strings.Compare(hash, filesHash) {
-				fmt.Println("Copy error: ", copyNodes[i], " Hash not match")
-			} else {
-				fmt.Println("Copy finished: ", copyNodes[i], ": ", hash)
+			for i := 0; i < dstNodeCount; i++ {
+				readers, _, err := cat(req.Context, n, []string{filesHash}, 0, -1)
+				if err != nil {
+					res.SetError(err, cmdkit.ErrNormal)
+					return
+				}
+				reader := io.MultiReader(readers...)
+				sh := api.NewShell(dstNodes[i])
+				if !sh.IsUp() {
+					fmt.Println("Node is not up: ", dstNodes[i])
+					continue
+				}
+				hash, err := sh.Add(reader)
+				if err != nil {
+					fmt.Println("Copy error: ", dstNodes[i], " ",err.Error())
+				} else if 0 != strings.Compare(hash, filesHash) {
+					fmt.Println("Copy error: ", dstNodes[i], " Hash not match")
+				} else {
+					hasCopy++
+					fmt.Println("CopyTo:", dstNodes[i], " Result:", hash)
+				}
+				if hasCopy >= copyNum {
+					fmt.Println("Copy finished.")
+					break
+				}
 			}
 		}
 	},
