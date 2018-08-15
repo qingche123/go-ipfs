@@ -1,16 +1,17 @@
 package commands
 
 import (
-	"io"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
+
 	"github.com/ipfs/go-ipfs/blockservice"
 	"github.com/ipfs/go-ipfs/core"
 	"github.com/ipfs/go-ipfs/core/coreunix"
 
-	api "github.com/qingche123/go-ipfs-api"
+	api "github.com/daseinio/go-ipfs-api"
 	dag "github.com/ipfs/go-ipfs/merkledag"
 	dagtest "github.com/ipfs/go-ipfs/merkledag/test"
 	"github.com/ipfs/go-ipfs/mfs"
@@ -50,6 +51,23 @@ const (
 
 type object struct {
 	Hash string
+}
+
+//CopyState represent a node add object state
+type CopyState uint
+
+const (
+	NoUsed      CopyState = iota //the node is not used for adding
+	CopyFailed                   //the node is used for adding, but add failed
+	CopySuccess                  //the node is used for adding, and add success
+)
+
+type AddedResult struct {
+	Name  string
+	Hash  string               `json:",omitempty"`
+	Bytes int64                `json:",omitempty"`
+	Size  string               `json:",omitempty"`
+	Copy  map[string]CopyState `json:",omitempty"`
 }
 
 const adderOutChanSize = 8
@@ -343,16 +361,15 @@ You can now check what blocks have been created by:
 		}()
 		defer res.Close()
 
-		err = res.Emit(outChan)
-		if err != nil {
-			log.Error(err)
-			return
+		var added *coreunix.AddedObject
+		added = (<-outChan).(*coreunix.AddedObject)
+		result := AddedResult{
+			Hash:  added.Hash,
+			Name:  added.Name,
+			Bytes: added.Bytes,
+			Size:  added.Size,
+			Copy:  make(map[string]CopyState, 0),
 		}
-		err = <-errCh
-		if err != nil {
-			res.SetError(err, cmdkit.ErrNormal)
-		}
-
 		if copyNum > 0 {
 			hasCopy := 0
 			dstNodeCount := 0
@@ -364,7 +381,7 @@ You can now check what blocks have been created by:
 			dstNodeString = strings.TrimRight(dstNodeString, "]")
 			dstNodeString = strings.TrimRight(dstNodeString, " ")
 
-			if strings.Compare(dstNodeString, " ")  == 0 || len(dstNodeString) < 7 {
+			if strings.Compare(dstNodeString, " ") == 0 || len(dstNodeString) < 7 {
 				dstNodeCount = 0
 			} else {
 				dstNodes = strings.Split(dstNodeString, " ")
@@ -374,8 +391,13 @@ You can now check what blocks have been created by:
 			rt, err := fileAdder.RootNode()
 			if err != nil {
 				log.Error(err)
+				res.SetError(err, cmdkit.ErrNormal)
 				return
 			}
+			for _, nip := range dstNodes {
+				result.Copy[nip] = NoUsed
+			}
+
 			filesHash := rt.Cid().String()
 
 			for i := 0; i < dstNodeCount; i++ {
@@ -392,18 +414,30 @@ You can now check what blocks have been created by:
 				}
 				hash, err := sh.Add(reader)
 				if err != nil {
-					fmt.Println("Copy error: ", dstNodes[i], " ",err.Error())
+					fmt.Println("Copy error: ", dstNodes[i], " ", err.Error())
+					result.Copy[dstNodes[i]] = CopyFailed
 				} else if 0 != strings.Compare(hash, filesHash) {
 					fmt.Println("Copy error: ", dstNodes[i], " Hash not match")
+					result.Copy[dstNodes[i]] = CopyFailed
 				} else {
 					hasCopy++
 					fmt.Println("CopyTo:", dstNodes[i], " Result:", hash)
+					result.Copy[dstNodes[i]] = CopySuccess
 				}
 				if hasCopy >= copyNum {
 					fmt.Println("Copy finished.")
 					break
 				}
 			}
+		}
+		err = res.Emit(result)
+		if err != nil {
+			log.Error(err)
+			return
+		}
+		err = <-errCh
+		if err != nil {
+			res.SetError(err, cmdkit.ErrNormal)
 		}
 	},
 	PostRun: cmds.PostRunMap{
